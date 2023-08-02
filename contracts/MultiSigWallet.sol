@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.19;
 
 /**
     Reference: https://solidity-by-example.org/app/multi-sig-wallet/
