@@ -6,65 +6,78 @@ pragma solidity ^0.8.19;
  */
 contract MultiSig {
     address[] public owners;
-    uint public numConfirmationsRequired;
+    uint public requiredConfirmations;
 
-    struct Transaction{
+    struct Transaction {
         address to;
         uint value;
         bool executed;
     }
 
-    mapping(uint=>mapping(address=>bool)) isConfirmed;
     Transaction[] public transactions;
+    mapping(uint => mapping(address => bool)) isConfirmed;
+    mapping(address => bool) isOwner;
 
-    event TransactionSubmitted(uint transactionId,address sender,address receiver,uint amount);
-    event TransactionConfirmed(uint transactionId);
-    event TransactionExecuted(uint transactionId);
+    event TransactionSubmitted(uint _transactionId, address _sender, address _receiver, uint _amount);
+    event TransactionConfirmed(uint _transactionId);
+    event TransactionExecuted(uint _transactionId);
 
-    constructor(address[] memory _owners,uint _numConfirmationsRequired){
-        require(_owners.length>1,"Onwers Required Must Be Greater than 1");
-        require(_numConfirmationsRequired>0 && numConfirmationsRequired<=_owners.length,"Num of confirmations are not in sync with the number of owners");
+    modifier onlyOwner() {
+        require(isOwner[msg.sender], 'Owner required');
+        _;
+    }
 
-        for(uint i=0;i<_owners.length;i++){
-            require(_owners[i]!=address(0),"Invalid Owner");
+    constructor(address[] memory _owners, uint _requiredConfirmations) {
+        require(_owners.length > 1, 'Owners must be more than 1');
+        require(_requiredConfirmations > 0 && _requiredConfirmations <= _owners.length, 'Required confirmations not in sync with no. of owners');
+
+        for (uint i = 0; i < _owners.length; i++) {
+            require(_owners[i] != address(0), 'Invalid owner address');
+            require(!isOwner[_owners[i]], 'Owner address already added');
             owners.push(_owners[i]);
+            isOwner[_owners[i]] = true;
         }
-        numConfirmationsRequired=_numConfirmationsRequired;
+
+        requiredConfirmations = _requiredConfirmations;
     }
 
-    function submitTransaction(address _to) public payable{
-        require(_to!=address(0),"Invalid Receiver's Address");
-        require(msg.value>0,"Transfer Amount Must Be Greater Than 0");
-        uint transactionId = transactions.length;
-        transactions.push(Transaction({to:_to,value:msg.value,executed:false}));
-        emit TransactionSubmitted(transactionId,msg.sender,_to,msg.value);
+    function submitTransaction(address _to) public payable onlyOwner {
+        require(_to != address(0), 'Invalid receiver address');
+        require(msg.value > 0, 'Transfer amount has to be greater than 0');
+
+        uint transactionId = transactions.length + 1;
+        transactions.push(Transaction({to: _to, value: msg.value, executed: false}));
+        emit TransactionSubmitted(transactionId, msg.sender, _to, msg.value);
     }
 
-    function confirmTransaction(uint _transactionId) public{
-        require(_transactionId<transactions.length,"Invalid Transaction Id");
-        require(!isConfirmed[_transactionId][msg.sender],"Transaction Is Already Confirmed By The Owner");
-        isConfirmed[_transactionId][msg.sender]=true;
+    function confirmTransaction(uint _transactionId) public onlyOwner {
+        require(_transactionId <= transactions.length, 'Invalid transaction id');
+        require(!isConfirmed[_transactionId][msg.sender], 'Already confirmed by the owner');
+        isConfirmed[_transactionId][msg.sender] = true;
         emit TransactionConfirmed(_transactionId);
     }
-   
-    function executeTransaction(uint _transactionId) public payable{
-       require(_transactionId<transactions.length,"Invalid Transaction Id");
-       require(!transactions[_transactionId].executed,"Transaction is already executed");
-       require(isTransactionConfirmed(_transactionId), "Transaction not yet confirmed");
-        (bool success,) = transactions[_transactionId].to.call{value: transactions[_transactionId].value}("");
-         require(success,"Transaction Execution Failed");
-         transactions[_transactionId].executed=true;
-         emit TransactionExecuted(_transactionId);
-    }
-    function isTransactionConfirmed(uint _transactionId) internal view returns(bool){
-         require(_transactionId<transactions.length,"Invalid Transaction Id");
-         uint confimationCount;//initially zero
 
-         for(uint i=0;i<owners.length;i++){
-             if(isConfirmed[_transactionId][owners[i]]){
-                 confimationCount++;
-             }
-         }
-         return confimationCount>=numConfirmationsRequired;
+    function executeTransaction(uint _transactionId) public payable onlyOwner {
+        require(_transactionId <= transactions.length, 'Invalid transaction id');
+        uint transactionIndex = _transactionId - 1;
+        require(!transactions[transactionIndex].executed, 'Transaction is already executed');
+        require(isTransactionConfirmed(_transactionId), 'Required confirmations not attained');
+
+        (bool success,) = transactions[transactionIndex].to.call{value: transactions[transactionIndex].value}("");
+        require(success, 'Transaction execution failed');
+        transactions[transactionIndex].executed = true;
+        emit TransactionExecuted(_transactionId);
+    }
+
+    function isTransactionConfirmed(uint _transactionId) internal view returns (bool) {
+        require(_transactionId <= transactions.length, 'Invalid transaction id');
+        uint confirmationCount;
+        for (uint i = 0; i < owners.length; i++) {
+            if(isConfirmed[_transactionId][owners[i]]) {
+                confirmationCount++;
+            }
+        }
+
+        return confirmationCount >= requiredConfirmations;
     }
 }
